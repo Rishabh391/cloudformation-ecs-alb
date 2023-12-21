@@ -1,0 +1,55 @@
+on:
+  push:
+    branches: [ master ]
+
+name: AWS ECR push
+
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-east-1
+
+    - name: Creating Self Signed Certificates
+      id: gen-ssl-certificate
+      run: |
+        aws iam delete-server-certificate --server-certificate-name Test-app
+        openssl genpkey -algorithm RSA -out private-key.pem
+        openssl req -new -key private-key.pem -out csr.pem -subj "/CN=*.amazonaws.com"
+        openssl x509 -req -in csr.pem -signkey private-key.pem -out certificate.pem -days 365
+        aws iam upload-server-certificate  --server-certificate-name Test-app --certificate-body file://certificate.pem --private-key file://private-key.pem
+        rm *.pem
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+      with:
+        mask-password: 'true'
+
+    - name: Build, tag, and push the image to Amazon ECR
+      id: build-image
+      working-directory: ./ecs-cloudformation-alb-asg/services/test-app/python-docker
+      env:
+        ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        ECR_REPOSITORY: ${{ secrets.REPO_NAME }}
+        IMAGE_TAG: ${{ github.sha }}
+      run: |
+        # Build a docker container and push it to ECR 
+        docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+        echo "Pushing image to ECR..."
+        docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+        echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+    - name: Copy files to the test website with the AWS CLI
+      run: |
+        aws s3 sync ecs-cloudformation-alb-asg s3://ecs-cloudformation-alb-asg/ --exclude "*" --include "*.yaml" --region us-east-1 

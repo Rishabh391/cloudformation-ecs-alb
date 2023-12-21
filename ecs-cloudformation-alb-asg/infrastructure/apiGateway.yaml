@@ -1,0 +1,104 @@
+Description: >
+  This template connects api gateway to private load balancer
+
+Parameters:
+  VPC:
+    Description: The VPC that the ECS cluster is deployed to
+    Type: AWS::EC2::VPC::Id
+
+  SecurityGroup:
+    Description: Select the Security Group to apply to the Gateway Api
+    Type: AWS::EC2::SecurityGroup::Id
+
+  PrivateSubnet1:
+    Description: Choose PrivateSubnet1 the gateway api should be deployed to
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnet2:
+    Description: Choose PrivateSubnet1 the gateway api should be deployed to
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateSubnet3:
+    Description: Choose PrivateSubnet1 the gateway api should be deployed to
+    Type: AWS::EC2::Subnet::Id
+
+  PrivateLoadBalancerListener:
+    Description: Choose the alb private listener
+    Type: String
+
+Resources:
+  APIGWVPClinkSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref 'VPC'
+      GroupName: vpclink-security-group
+      GroupDescription: APIGW vpclink security group
+      SecurityGroupIngress:
+      - IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+
+  AddIngressToSecurityGroupFromVPClink:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      Description: Ingress from the VPC Link
+      GroupId:
+        !Ref SecurityGroup
+      IpProtocol: '-1'
+      SourceSecurityGroupId: 
+        !Ref 'APIGWVPClinkSG'
+
+  PrivateAPIGWvpcLink:    
+    Type: AWS::ApiGatewayV2::VpcLink
+    Properties: 
+      Name: private-apigw-vpclink
+      SecurityGroupIds: 
+        - !Ref APIGWVPClinkSG
+      SubnetIds: 
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+        - !Ref PrivateSubnet3
+
+  HttpApiALB:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: alb-HTTP-api
+      Description: HTTP API ALB
+      ProtocolType: HTTP
+
+  APIRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApiALB
+      RouteKey: 'GET /'
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref APIIntegration
+
+  APIIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApiALB
+      Description: Private ALB Integration
+      IntegrationType: HTTP_PROXY
+      IntegrationMethod: GET
+      ConnectionType: VPC_LINK
+      ConnectionId: 
+        !Ref PrivateAPIGWvpcLink
+      IntegrationUri: 
+        !Ref PrivateLoadBalancerListener 
+      PayloadFormatVersion: '1.0'
+
+  APIStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      StageName: $default
+      AutoDeploy: true
+      ApiId: !Ref HttpApiALB    
+
+Outputs:
+  ApiUrl:
+    Description: Invoke URL
+    Value: !Sub https://${HttpApiALB}.execute-api.${AWS::Region}.amazonaws.com/        

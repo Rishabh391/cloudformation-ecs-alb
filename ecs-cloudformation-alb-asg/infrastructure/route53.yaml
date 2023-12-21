@@ -1,0 +1,26 @@
+Description: > 
+  Use this template to access load balancer or api gateway with custom domain
+
+Parameters:
+  DomainName:
+    Description: Domain name to use
+    Type: String
+
+  HostedZoneId:
+    Description: Hosted Zone of the domain 
+    Type: String
+
+  LoadBalancerCanonicalHostedZoneID:
+    Description: Load Balancer Hosted Zone Id 
+    Type: String
+
+Resources:
+  RecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties: 
+      HostedZoneId: !Ref HostedZoneId
+      Type: A
+      Name: DomainName
+      AliasTarget:
+        DNSName: !Ref DNSName
+        HostedZoneId: !Ref LoadBalancerCanonicalHostedZoneID
